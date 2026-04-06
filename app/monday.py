@@ -79,6 +79,19 @@ def upload_file(item_id: str, column_id: str, file_data: bytes, filename: str, a
         return False, str(e)
 
 
+# Column IDs whose types are ambiguous (e.g. start with "signature" but store email).
+# Maps column_id → forced type string.
+_COLUMN_TYPE_OVERRIDES: dict[str, str] = {}
+
+
+def _build_column_type_overrides() -> None:
+    """Populate _COLUMN_TYPE_OVERRIDES from environment at first use."""
+    global _COLUMN_TYPE_OVERRIDES
+    biomed_email_col = os.getenv("COL_BIOMED_PERSON_EMAIL", "")
+    if biomed_email_col:
+        _COLUMN_TYPE_OVERRIDES[biomed_email_col] = "email"
+
+
 def format_column_value(col_id: str, value) -> dict | str | None:
     """
     Convert a form value to the correct Monday.com column value format.
@@ -86,6 +99,14 @@ def format_column_value(col_id: str, value) -> dict | str | None:
     """
     if not value or value == "":
         return None
+
+    if not _COLUMN_TYPE_OVERRIDES:
+        _build_column_type_overrides()
+
+    forced_type = _COLUMN_TYPE_OVERRIDES.get(col_id)
+    if forced_type == "email":
+        val_str = str(value).strip()
+        return {"email": val_str, "text": val_str}
 
     col_lower = str(col_id).lower()
     val_str = str(value).strip()

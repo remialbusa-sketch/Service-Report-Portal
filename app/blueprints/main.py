@@ -95,6 +95,11 @@ def submit():
             "COL_STATUS": request.form.get("status"),
             "COL_MACHINE_SYSTEM": request.form.get("machine_system"),
             "COL_SERIAL_NUMBER": request.form.get("serial_number"),
+            "COL_BIOMED_PERSON": request.form.get("biomed_person"),
+            "COL_BIOMED_PERSON_EMAIL": request.form.get("biomed_person_email"),
+            "COL_CUSTOMER_NAME": request.form.get("customer_name"),
+            "COL_CUSTOMER_EMAIL": request.form.get("customer_email"),
+            "COL_SOFTWARE_VERSION": request.form.get("software_version"),
         }
 
         # Track creating user
