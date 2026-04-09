@@ -111,32 +111,31 @@ def format_column_value(col_id: str, value) -> dict | str | None:
     col_lower = str(col_id).lower()
     val_str = str(value).strip()
 
-    # Long text — plain string
-    if col_lower.startswith("long_text_") or col_lower == "long_text":
-        return val_str
+    # File / signature — uploaded separately, never via column values
+    if "file" in col_lower or "signature" in col_lower:
+        return None
 
-    # Text
-    if col_lower.startswith("text_") or "text" in col_lower:
-        return {"text": val_str}
+    # Board relation (connect boards)
+    if "board_relation" in col_lower or "relation" in col_lower:
+        try:
+            return {"item_ids": [int(value)]}
+        except (ValueError, TypeError):
+            return None
+
+    # Multiple person / people column
+    if "multiple_person" in col_lower or "person" in col_lower:
+        try:
+            if isinstance(value, list):
+                ids = [int(v) for v in value]
+            else:
+                ids = [int(value)]
+            return {"personsAndTeams": [{"id": uid, "kind": "person"} for uid in ids]}
+        except (ValueError, TypeError):
+            return None
 
     # Email
     if "email" in col_lower:
         return {"email": val_str, "text": val_str}
-
-    # Datetime (datetime-local → "YYYY-MM-DD HH:mm:ss")
-    if "datetime" in col_lower:
-        if "T" in val_str:
-            date_part, time_part = val_str.split("T")
-            if time_part.count(":") == 1:
-                time_part += ":00"
-            val_str = f"{date_part} {time_part}"
-        return val_str
-
-    # Date only
-    if "date" in col_lower:
-        if "T" in val_str:
-            val_str = val_str.split("T")[0]
-        return val_str
 
     # Status / color index
     if "status" in col_lower or "color" in col_lower:
@@ -145,34 +144,38 @@ def format_column_value(col_id: str, value) -> dict | str | None:
         except (ValueError, TypeError):
             return None
 
-    # Single select
+    # Single select / dropdown
     if "single_select" in col_lower:
         try:
             return {"index": int(value)}
         except (ValueError, TypeError):
             return {"text": val_str}
 
-    # Board relation
-    if "relation" in col_lower:
-        try:
-            return {"item_ids": [int(value)]}
-        except (ValueError, TypeError):
-            return None
+    # Datetime (datetime-local → {"date": "YYYY-MM-DD", "time": "HH:MM:SS"})
+    if "datetime" in col_lower:
+        if "T" in val_str:
+            date_part, time_part = val_str.split("T")
+            if time_part.count(":") == 1:
+                time_part += ":00"
+        else:
+            parts = val_str.split(" ", 1)
+            date_part = parts[0]
+            time_part = parts[1] if len(parts) > 1 else "00:00:00"
+        return {"date": date_part, "time": time_part}
 
-    # Multiple person
-    if "multiple_person" in col_lower or "person" in col_lower:
-        try:
-            if isinstance(value, list):
-                ids = [int(v) for v in value]
-            else:
-                ids = [int(value)]
-            return {"personsIds": ids}
-        except (ValueError, TypeError):
-            return None
+    # Date only → {"date": "YYYY-MM-DD"}
+    if "date" in col_lower:
+        if "T" in val_str:
+            val_str = val_str.split("T")[0]
+        return {"date": val_str}
 
-    # File / signature — uploaded separately, never via column values
-    if "file" in col_lower or "signature" in col_lower:
-        return None
+    # Long text → {"text": "content"}
+    if col_lower.startswith("long_text") or col_lower == "long_text":
+        return {"text": val_str}
 
-    # Default: treat as text
-    return {"text": val_str}
+    # Short text / text — plain string value
+    if col_lower.startswith("short_text") or col_lower.startswith("text") or "text" in col_lower:
+        return val_str
+
+    # Default: treat as plain string
+    return val_str

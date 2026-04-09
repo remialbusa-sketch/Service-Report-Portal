@@ -227,11 +227,18 @@ export async function saveSubmission(formData, signatures = null) {
   if (!dbInstance) await initOfflineDB();
 
   return new Promise((resolve, reject) => {
+    // Preserve multi-value fields (e.g. tsp_workwith sent as multiple entries)
+    const formObj = {};
+    for (const key of formData.keys()) {
+      const values = formData.getAll(key);
+      formObj[key] = values.length === 1 ? values[0] : values;
+    }
+
     const submission = {
       id: generateUUID(),
       status: "local",
       item_name: formData.get("name") || "Untitled",
-      formData: Object.fromEntries(formData),
+      formData: formObj,
       signatures: signatures || {},
       submitted_at: Date.now(),
       monday_item_id: null,
@@ -280,6 +287,50 @@ export async function getAllSubmissions() {
     req.onerror = () => reject(new Error("Failed to get submissions"));
     req.onsuccess = () => resolve(req.result || []);
   });
+}
+
+export async function deleteSubmission(id) {
+  if (!dbInstance) await initOfflineDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = dbInstance.transaction([STORE_SUBMISSIONS], "readwrite");
+    const store = tx.objectStore(STORE_SUBMISSIONS);
+    const req = store.delete(id);
+
+    req.onerror = () => reject(new Error("Failed to delete submission"));
+    req.onsuccess = () => {
+      console.log("[SUBMISSION] Deleted:", id);
+      resolve(true);
+    };
+  });
+}
+
+export async function updateSubmissionStatus(id, status, extra = {}) {
+  if (!dbInstance) await initOfflineDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = dbInstance.transaction([STORE_SUBMISSIONS], "readwrite");
+    const store = tx.objectStore(STORE_SUBMISSIONS);
+    const getReq = store.get(id);
+
+    getReq.onsuccess = () => {
+      const sub = getReq.result;
+      if (!sub) {
+        reject(new Error("Submission not found"));
+        return;
+      }
+      Object.assign(sub, { status, ...extra });
+      const putReq = store.put(sub);
+      putReq.onsuccess = () => resolve(true);
+      putReq.onerror = () => reject(new Error("Failed to update submission"));
+    };
+    getReq.onerror = () => reject(new Error("Failed to get submission"));
+  });
+}
+
+export async function getPendingSubmissions() {
+  const all = await getAllSubmissions();
+  return all.filter((s) => s.status !== "synced");
 }
 
 // ─────────────────────────────────────────────────────────────────────────

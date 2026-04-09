@@ -22,7 +22,14 @@ import {
   clearPad,
 } from "./signatures.js";
 
-import { loadDraft, clearDraft } from "./draft.js";
+import {
+  loadDraft,
+  clearDraft,
+  saveSubmission,
+  getPendingSubmissions,
+  deleteSubmission,
+  updateSubmissionStatus,
+} from "./draft.js";
 import { initOfflineUI } from "./offline-ui.js";
 
 // ── Select2 initialisation ────────────────────────────────────────────────────
@@ -108,6 +115,105 @@ function initSelect2() {
   }
 }
 
+// ── Network status badge ──────────────────────────────────────────────────────
+
+async function refreshNetworkBadge() {
+  const badge = document.getElementById("networkBadge");
+  if (!badge) return;
+  const pending = await getPendingSubmissions();
+  const isOnline = navigator.onLine;
+  if (!isOnline) {
+    badge.className = "badge bg-danger me-2";
+    badge.textContent =
+      pending.length > 0 ? `Offline · ${pending.length} queued` : "Offline";
+    badge.style.display = "inline";
+  } else if (pending.length > 0) {
+    badge.className = "badge bg-warning text-dark me-2";
+    badge.textContent = `${pending.length} queued`;
+    badge.style.display = "inline";
+  } else {
+    badge.className = "badge bg-success me-2";
+    badge.textContent = "Online";
+    badge.style.display = "inline";
+  }
+}
+
+// ── Pending submissions sync engine ──────────────────────────────────────────
+
+async function syncPendingSubmissions() {
+  const pending = await getPendingSubmissions();
+  if (!pending.length) {
+    await refreshNetworkBadge();
+    return;
+  }
+  console.log(`[SYNC] Draining outbox: ${pending.length} submission(s)`);
+
+  for (const sub of pending) {
+    try {
+      // Reconstruct FormData from stored plain object
+      const fd = new FormData();
+      for (const [key, val] of Object.entries(sub.formData)) {
+        if (Array.isArray(val)) {
+          for (const v of val) fd.append(key, String(v));
+        } else if (val != null) {
+          fd.append(key, String(val));
+        }
+      }
+
+      await updateSubmissionStatus(sub.id, "syncing");
+
+      const res = await fetch("/submit", {
+        method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        body: fd,
+      });
+      const result = await res.json();
+
+      if (result.success) {
+        // Upload any stored signature blobs
+        if (sub.signatures) {
+          for (const [key, blob] of Object.entries(sub.signatures)) {
+            if (blob) {
+              try {
+                await uploadSignature(key, blob, result.item_id);
+              } catch (sigErr) {
+                console.warn(
+                  `[SYNC] Sig ${key} upload failed, saving:`,
+                  sigErr,
+                );
+                await saveSignatureBlob(key, blob, result.item_id);
+              }
+            }
+          }
+        }
+        await deleteSubmission(sub.id);
+        console.log(`[SYNC] Synced submission ${sub.id.slice(0, 8)}`);
+      } else {
+        await updateSubmissionStatus(sub.id, "error", {
+          last_sync_error: result.error || "Server rejected submission",
+          sync_attempts: (sub.sync_attempts || 0) + 1,
+        });
+        console.warn(
+          `[SYNC] Server error for ${sub.id.slice(0, 8)}:`,
+          result.error,
+        );
+      }
+    } catch (err) {
+      await updateSubmissionStatus(sub.id, "local", {
+        last_sync_error: err.message,
+        sync_attempts: (sub.sync_attempts || 0) + 1,
+      });
+      console.warn(
+        `[SYNC] Network error for ${sub.id.slice(0, 8)}:`,
+        err.message,
+      );
+    }
+  }
+
+  await updatePendingBadge();
+  await refreshNetworkBadge();
+}
+
 // ── Form submission ───────────────────────────────────────────────────────────
 
 async function handleSubmit(e) {
@@ -121,7 +227,7 @@ async function handleSubmit(e) {
   btn.textContent = "Submitting...";
   statusDiv.style.display = "block";
   statusDiv.className = "upload-status bg-info-subtle text-info";
-  statusDiv.textContent = "Creating item on Monday.com...";
+  statusDiv.textContent = "Preparing submission…";
 
   try {
     // Auto-capture any unsaved signature drawings
@@ -136,11 +242,8 @@ async function handleSubmit(e) {
       }
     }
 
-    // Step 1: Submit form data
+    // Collect form data + Select2 AJAX values
     const formData = new FormData(form);
-
-    // Select2 AJAX selections are NOT reliably reflected in the native <select>
-    // DOM element. Use select2('data') which reads Select2's internal state.
     if (window.$ && window.$.fn.select2) {
       const peopleEl = window.$("#field-workwith");
       if (peopleEl.length) {
@@ -171,12 +274,60 @@ async function handleSubmit(e) {
       }
     }
 
-    const res = await fetch("/submit", {
-      method: "POST",
-      headers: { "X-Requested-With": "XMLHttpRequest" },
-      body: formData,
-    });
-    const result = await res.json();
+    // ── OFFLINE PATH ─────────────────────────────────────────────────────────
+    if (!navigator.onLine) {
+      await saveSubmission(formData, { ...sigBlobs });
+      statusDiv.className = "upload-status bg-warning-subtle text-warning";
+      statusDiv.innerHTML = `
+        <div>
+          💾 <strong>Saved offline</strong>
+          <br/><small>Your report is queued and will sync to Monday.com automatically when you reconnect.</small>
+        </div>`;
+      for (const key of Object.keys(sigBlobs)) delete sigBlobs[key];
+      for (const cfg of SIG_PADS) clearPad(cfg.key);
+      form.reset();
+      clearDraft();
+      await updatePendingBadge();
+      await refreshNetworkBadge();
+      btn.disabled = false;
+      btn.textContent = "Submit to Monday.com";
+      return;
+    }
+
+    // ── ONLINE PATH ───────────────────────────────────────────────────────────
+    statusDiv.textContent = "Creating item on Monday.com...";
+
+    let result;
+    try {
+      const res = await fetch("/submit", {
+        method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        body: formData,
+      });
+      result = await res.json();
+    } catch (networkErr) {
+      // Network failed mid-request — save to outbox
+      console.warn(
+        "[SUBMIT] Network error, saving to outbox:",
+        networkErr.message,
+      );
+      await saveSubmission(formData, { ...sigBlobs });
+      statusDiv.className = "upload-status bg-warning-subtle text-warning";
+      statusDiv.innerHTML = `
+        <div>
+          💾 <strong>Saved offline</strong>
+          <br/><small>Connection lost. Report queued and will sync when reconnected.</small>
+        </div>`;
+      for (const key of Object.keys(sigBlobs)) delete sigBlobs[key];
+      for (const cfg of SIG_PADS) clearPad(cfg.key);
+      form.reset();
+      clearDraft();
+      await updatePendingBadge();
+      await refreshNetworkBadge();
+      btn.disabled = false;
+      btn.textContent = "Submit to Monday.com";
+      return;
+    }
 
     if (!result.success || !result.item_id) {
       statusDiv.className = "upload-status bg-danger-subtle text-danger";
@@ -231,6 +382,7 @@ async function handleSubmit(e) {
     form.reset();
     clearDraft();
     await updatePendingBadge();
+    await refreshNetworkBadge();
   } catch (err) {
     console.error("[SUBMIT] Error:", err);
     statusDiv.className = "upload-status bg-danger-subtle text-danger";
@@ -285,6 +437,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Draft restore + pending badge
   loadDraft();
   await updatePendingBadge();
+  await refreshNetworkBadge();
+
+  // Sync any queued submissions if already online
+  if (navigator.onLine) {
+    syncPendingSubmissions();
+  }
+
+  // Network status listeners
+  window.addEventListener("online", () => {
+    refreshNetworkBadge();
+    syncPendingSubmissions();
+  });
+  window.addEventListener("offline", refreshNetworkBadge);
+
+  // Service Worker registration
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker
+      .register("/sw.js", { scope: "/" })
+      .then((reg) => console.log("[SW] Registered, scope:", reg.scope))
+      .catch((err) => console.warn("[SW] Registration failed:", err));
+  }
 
   console.log("[INIT] Service Report Portal ready");
 });

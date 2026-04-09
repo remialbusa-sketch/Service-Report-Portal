@@ -1,7 +1,5 @@
-{% extends "base.html" %}
-{% block title %}Admin Access{% endblock %}
-{% block body_class %}auth-page{% endblock %}
-{% block body %}
+{% extends "base.html" %} {% block title %}Admin Access{% endblock %} {% block
+body_class %}auth-page{% endblock %} {% block body %}
 <div class="auth-wrapper">
   <div class="auth-card">
     <div class="auth-header">
@@ -9,25 +7,42 @@
       <p class="auth-sub">Service Report Portal</p>
     </div>
     <div class="auth-body">
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          {% for category, message in messages %}
-          <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show mb-3">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
+      {% with messages = get_flashed_messages(with_categories=true) %} {% if
+      messages %} {% for category, message in messages %}
+      <div
+        class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show mb-3"
+      >
+        {{ message }}
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="alert"
+        ></button>
+      </div>
+      {% endfor %} {% endif %} {% endwith %}
       <form method="POST" action="{{ url_for('auth.admin_users') }}">
         <input type="hidden" name="action" value="admin_login" />
         <div class="mb-3">
-          <input type="password" name="admin_password" class="form-control" placeholder="Admin password" required autocomplete="off" />
+          <input
+            type="password"
+            name="admin_password"
+            class="form-control"
+            placeholder="Admin password"
+            required
+            autocomplete="off"
+          />
         </div>
-        <button type="submit" class="btn btn-primary w-100">Access Admin Panel</button>
+        <button type="submit" class="btn btn-primary w-100">
+          Access Admin Panel
+        </button>
       </form>
       <p class="text-center mt-3">
-        <a href="{{ url_for('auth.login') }}" class="text-muted" style="font-size:0.85rem">← Back to login</a>
+        <a
+          href="{{ url_for('auth.login') }}"
+          class="text-muted"
+          style="font-size: 0.85rem"
+          >← Back to login</a
+        >
       </p>
     </div>
   </div>
