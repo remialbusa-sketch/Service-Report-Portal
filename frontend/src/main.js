@@ -214,10 +214,20 @@ async function syncPendingSubmissions() {
   await refreshNetworkBadge();
 }
 
+// ── Timezone helpers ─────────────────────────────────────────────────────────
+
+function setTimezoneOffsetField() {
+  const timezoneInput = document.getElementById("timezone-offset");
+  if (!timezoneInput) return;
+  timezoneInput.value = String(new Date().getTimezoneOffset());
+}
+
 // ── Form submission ───────────────────────────────────────────────────────────
 
 async function handleSubmit(e) {
   e.preventDefault();
+
+  setTimezoneOffsetField();
 
   const form = document.getElementById("mainForm");
   const btn = document.getElementById("submitBtn");
@@ -423,6 +433,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   };
   waitForCDN();
+
+  setTimezoneOffsetField();
 
   // Form events
   document.getElementById("mainForm")?.addEventListener("submit", handleSubmit);

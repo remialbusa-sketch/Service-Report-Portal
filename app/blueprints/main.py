@@ -57,6 +57,14 @@ def submit():
             flash("Please select a Service Request.", "error")
             return _submit_response(False, "Please select a Service Request.")
 
+        timezone_offset = None
+        tz_offset_val = request.form.get("timezone_offset", "").strip()
+        if tz_offset_val:
+            try:
+                timezone_offset = int(tz_offset_val)
+            except ValueError:
+                timezone_offset = None
+
         # ── Extract TSP WORKWITH IDs from raw form data ───────────────
         raw_workwith = request.form.getlist("tsp_workwith")
         print(f"[WORKWITH] getlist result: {raw_workwith!r}")
@@ -112,7 +120,11 @@ def submit():
             col_id = os.getenv(env_var)
             if not col_id:
                 continue
-            formatted = monday.format_column_value(col_id, form_value)
+            formatted = monday.format_column_value(
+                col_id,
+                form_value,
+                timezone_offset=timezone_offset,
+            )
             if formatted is not None:
                 column_values[col_id] = formatted
 
