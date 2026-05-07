@@ -254,6 +254,15 @@ async function handleSubmit(e) {
 
     // Collect form data + Select2 AJAX values
     const formData = new FormData(form);
+    // Convert datetime-local values to UTC before sending
+    form.querySelectorAll('input[type="datetime-local"]').forEach((input) => {
+      if (input.value && input.name) {
+        const localDate = new Date(input.value);
+        if (!isNaN(localDate)) {
+          formData.set(input.name, localDate.toISOString().slice(0, 16));
+        }
+      }
+    });
     if (window.$ && window.$.fn.select2) {
       const peopleEl = window.$("#field-workwith");
       if (peopleEl.length) {

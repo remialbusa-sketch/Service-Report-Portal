@@ -5,8 +5,6 @@ All calls go through this module so request logic is centralised.
 import os
 import sys
 import traceback
-from datetime import datetime, timedelta
-
 import requests
 
 API_KEY: str = os.getenv("MONDAY_API_KEY", "")
@@ -94,11 +92,7 @@ def _build_column_type_overrides() -> None:
         _COLUMN_TYPE_OVERRIDES[biomed_email_col] = "email"
 
 
-def format_column_value(
-    col_id: str,
-    value,
-    timezone_offset: int | None = None,
-) -> dict | str | None:
+def format_column_value(col_id: str, value) -> dict | str | None:
     """
     Convert a form value to the correct Monday.com column value format.
     Returns None to skip the column.
@@ -167,17 +161,6 @@ def format_column_value(
             parts = val_str.split(" ", 1)
             date_part = parts[0]
             time_part = parts[1] if len(parts) > 1 else "00:00:00"
-
-        if timezone_offset is not None:
-            try:
-                dt = datetime.strptime(
-                    f"{date_part}T{time_part}", "%Y-%m-%dT%H:%M:%S"
-                )
-                dt = dt + timedelta(minutes=timezone_offset)
-                date_part = dt.strftime("%Y-%m-%d")
-                time_part = dt.strftime("%H:%M:%S")
-            except ValueError:
-                pass
 
         return {"date": date_part, "time": time_part}
 
