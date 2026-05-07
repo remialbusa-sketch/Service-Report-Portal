@@ -385,7 +385,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
   waitForCDN();
 
-  setTimezoneOffsetField();
+  // Populate hidden timezone field for correct Monday.com datetime handling
+  const tzField = document.getElementById("local-timezone");
+  if (tzField) tzField.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   // Form events
   document.getElementById("mainForm")?.addEventListener("submit", handleSubmit);
