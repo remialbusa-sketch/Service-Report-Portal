@@ -8,6 +8,31 @@
       Solutions
     </title>
 
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='favicon-96x96.png') }}?v=1"
+      sizes="96x96"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="{{ url_for('static', filename='favicon.svg') }}?v=1"
+    />
+    <link
+      rel="shortcut icon"
+      href="{{ url_for('static', filename='favicon.ico') }}?v=1"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="{{ url_for('static', filename='apple-touch-icon.png') }}?v=1"
+    />
+    <link
+      rel="manifest"
+      href="{{ url_for('static', filename='site.webmanifest') }}?v=1"
+    />
+
     {# Preconnect for Google Fonts performance #}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,7 +42,6 @@
       rel="stylesheet"
       href="{{ url_for('static', filename='dist/main.css') }}"
     />
-    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#1a73e8" />
 
     {# Third-party CDN scripts that cannot be bundled via Vite without config #}

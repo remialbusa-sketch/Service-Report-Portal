@@ -6,7 +6,7 @@
  *   - API / submit / uploads:         NetworkOnly  (never cached)
  */
 
-const CACHE_NAME = "service-report-v1";
+const CACHE_NAME = "service-report-v2";
 
 const PRECACHE_URLS = [
   "/",

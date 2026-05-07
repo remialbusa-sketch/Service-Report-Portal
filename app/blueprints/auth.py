@@ -6,7 +6,7 @@ import traceback
 import requests
 from flask import (
     Blueprint, render_template, request, redirect,
-    url_for, flash, session,
+    url_for, flash, session, make_response,
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -35,6 +35,8 @@ def signup():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('main.index'))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
@@ -55,7 +57,11 @@ def login():
         return redirect(url_for("auth.login"))
 
     google_enabled = bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"))
-    return render_template("auth/login.html", google_enabled=google_enabled)
+    response = make_response(render_template("auth/login.html", google_enabled=google_enabled))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 # ── Profile ──────────────────────────────────────────────────────────────────

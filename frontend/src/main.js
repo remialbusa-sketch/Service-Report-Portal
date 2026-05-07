@@ -34,26 +34,6 @@ import { initOfflineUI } from "./offline-ui.js";
 
 // ── Select2 initialisation ────────────────────────────────────────────────────
 
-/** Render a person option with avatar/initials like Monday's people column */
-function formatPerson(person) {
-  if (!person.id) return person.text;
-  const photo = person.photo
-    ? `<img src="${person.photo}" class="people-avatar" alt="" />`
-    : `<span class="people-initials">${person.initials || "?"}</span>`;
-  return window.$(
-    `<span class="people-option">${photo}<span class="people-name">${person.text}</span></span>`,
-  );
-}
-
-/** Render a selected person tag */
-function formatPersonSelection(person) {
-  if (!person.id) return person.text;
-  const photo = person.photo
-    ? `<img src="${person.photo}" class="people-avatar-sm" alt="" />`
-    : `<span class="people-initials-sm">${person.initials || "?"}</span>`;
-  return window.$(`<span class="people-tag">${photo} ${person.text}</span>`);
-}
-
 function initSelect2() {
   if (!window.$ || !window.$.fn.select2) {
     setTimeout(initSelect2, 100);
@@ -61,54 +41,12 @@ function initSelect2() {
   }
   try {
     // Service request dropdown
-    window.$('select[name="linked_item_id"]').select2({
-      placeholder: "Type to search service requests...",
-      allowClear: true,
-      width: "100%",
-      ajax: {
-        url: "/search_linked_items",
-        dataType: "json",
-        delay: 300,
-        data: (params) => ({ q: params.term || "" }),
-        processResults: (data) => ({ results: data.results }),
-        cache: false,
-      },
-      minimumInputLength: 1,
-      language: {
-        inputTooShort: () => "Type at least 1 character to search…",
-        searching: () => "Searching Monday.com…",
-        noResults: () => "No service requests found",
-      },
-    });
-
     // Machine System dropdown with search
     window.$(".machine-picker").select2({
       placeholder: "Search machine systems…",
       allowClear: true,
       width: "100%",
       minimumResultsForSearch: 0,
-    });
-
-    // People picker — TSP WORKWITH
-    window.$(".people-picker").select2({
-      placeholder: "Search team members…",
-      allowClear: true,
-      width: "100%",
-      ajax: {
-        url: "/api/users",
-        dataType: "json",
-        delay: 250,
-        data: (params) => ({ q: params.term || "" }),
-        processResults: (data) => ({ results: data.results }),
-        cache: true,
-      },
-      minimumInputLength: 0,
-      templateResult: formatPerson,
-      templateSelection: formatPersonSelection,
-      language: {
-        searching: () => "Searching team members…",
-        noResults: () => "No members found",
-      },
     });
   } catch (e) {
     console.error("Select2 init error:", e);
@@ -122,6 +60,7 @@ async function refreshNetworkBadge() {
   if (!badge) return;
   const pending = await getPendingSubmissions();
   const isOnline = navigator.onLine;
+
   if (!isOnline) {
     badge.className = "badge bg-danger me-2";
     badge.textContent =
@@ -138,9 +77,29 @@ async function refreshNetworkBadge() {
   }
 }
 
+// ── Auto-sync toggle (persisted in localStorage) ─────────────────────────────
+
+let _autoSyncEnabled = localStorage.getItem("autoSyncEnabled") !== "false";
+
+export function isAutoSyncEnabled() {
+  return _autoSyncEnabled;
+}
+
+export function setAutoSync(enabled) {
+  _autoSyncEnabled = enabled;
+  localStorage.setItem("autoSyncEnabled", enabled ? "true" : "false");
+  refreshNetworkBadge();
+  if (enabled && navigator.onLine) syncPendingSubmissions();
+}
+
+// expose for offline-ui.js toggle handler
+window.setAutoSync = setAutoSync;
+window.isAutoSyncEnabled = isAutoSyncEnabled;
+
 // ── Pending submissions sync engine ──────────────────────────────────────────
 
 async function syncPendingSubmissions() {
+  if (!_autoSyncEnabled) return;
   const pending = await getPendingSubmissions();
   if (!pending.length) {
     await refreshNetworkBadge();
@@ -224,6 +183,22 @@ function setTimezoneOffsetField() {
 
 // ── Form submission ───────────────────────────────────────────────────────────
 
+function getClientTimeZone() {
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timezone) return timezone;
+  } catch (err) {
+    // Fall back to UTC offset if the browser does not expose a timezone name.
+  }
+
+  const offset = -new Date().getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const absOffset = Math.abs(offset);
+  const hours = String(Math.floor(absOffset / 60)).padStart(2, "0");
+  const minutes = String(absOffset % 60).padStart(2, "0");
+  return `UTC${sign}${hours}:${minutes}`;
+}
+
 async function handleSubmit(e) {
   e.preventDefault();
 
@@ -232,6 +207,11 @@ async function handleSubmit(e) {
   const form = document.getElementById("mainForm");
   const btn = document.getElementById("submitBtn");
   const statusDiv = document.getElementById("uploadStatus");
+
+  const tzInput = form?.querySelector('[name="local_timezone"]');
+  if (tzInput) {
+    tzInput.value = getClientTimeZone();
+  }
 
   btn.disabled = true;
   btn.textContent = "Submitting...";
@@ -252,46 +232,8 @@ async function handleSubmit(e) {
       }
     }
 
-    // Collect form data + Select2 AJAX values
+    // Collect form data
     const formData = new FormData(form);
-    // Convert datetime-local values to UTC before sending
-    form.querySelectorAll('input[type="datetime-local"]').forEach((input) => {
-      if (input.value && input.name) {
-        const localDate = new Date(input.value);
-        if (!isNaN(localDate)) {
-          formData.set(input.name, localDate.toISOString().slice(0, 16));
-        }
-      }
-    });
-    if (window.$ && window.$.fn.select2) {
-      const peopleEl = window.$("#field-workwith");
-      if (peopleEl.length) {
-        formData.delete("tsp_workwith");
-        const selected = peopleEl.select2("data") || [];
-        console.log("[WORKWITH] select2 data:", selected);
-        for (const item of selected) {
-          if (item.id) formData.append("tsp_workwith", item.id);
-        }
-        console.log(
-          "[WORKWITH] FormData tsp_workwith:",
-          formData.getAll("tsp_workwith"),
-        );
-      }
-
-      const assignedEl = window.$("#field-assigned");
-      if (assignedEl.length) {
-        formData.delete("tsp_assigned");
-        const selectedAssigned = assignedEl.select2("data") || [];
-        console.log("[ASSIGNED] select2 data:", selectedAssigned);
-        for (const item of selectedAssigned) {
-          if (item.id) formData.append("tsp_assigned", item.id);
-        }
-        console.log(
-          "[ASSIGNED] FormData tsp_assigned:",
-          formData.getAll("tsp_assigned"),
-        );
-      }
-    }
 
     // ── OFFLINE PATH ─────────────────────────────────────────────────────────
     if (!navigator.onLine) {
@@ -479,6 +421,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       .then((reg) => console.log("[SW] Registered, scope:", reg.scope))
       .catch((err) => console.warn("[SW] Registration failed:", err));
   }
+
+  // Keep-alive ping — prevent Render free tier from sleeping (every 10 min)
+  setInterval(
+    () => {
+      fetch("/ping", { method: "GET" }).catch(() => {});
+    },
+    10 * 60 * 1000,
+  );
 
   console.log("[INIT] Service Report Portal ready");
 });

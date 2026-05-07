@@ -1,0 +1,4 @@
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home4/mcbtsjq1/portal.mcbtsi.com/
+    - /bin/cp -R * $DEPLOYPATH

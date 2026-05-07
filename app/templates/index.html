@@ -49,7 +49,12 @@
     {# ══════════════════ MAIN FORM ══════════════════ #}
     <div class="col-lg-8">
       <form id="mainForm" novalidate>
-        <input type="hidden" id="timezone-offset" name="timezone_offset" value="" />
+        <input
+          type="hidden"
+          id="local-timezone"
+          name="local_timezone"
+          value=""
+        />
         {# 1 · Basic Information #}
         <div class="form-card">
           <div class="form-card-header">
@@ -72,31 +77,6 @@
                   required
                 />
               </div>
-              <div class="col-md-4">
-                <label class="form-label" for="field-linked"
-                  >Service Request Number
-                  <span class="text-danger">*</span></label
-                >
-                <select
-                  id="field-linked"
-                  name="linked_item_id"
-                  class="form-select"
-                  required
-                >
-                  <option value="">Search and select…</option>
-                </select>
-              </div>
-              <div class="col-md-4">
-                <label class="form-label" for="field-assigned"
-                  >TSP Assigned</label
-                >
-                <select
-                  id="field-assigned"
-                  name="tsp_assigned"
-                  class="form-select people-picker"
-                  multiple
-                ></select>
-              </div>
             </div>
           </div>
         </div>
@@ -109,19 +89,7 @@
           </div>
           <div class="form-card-body">
             <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label" for="field-email"
-                  >Service Email (TSP) <span class="text-danger">*</span></label
-                >
-                <input
-                  type="email"
-                  id="field-email"
-                  name="email"
-                  class="form-control"
-                  placeholder="service@mcbtsi.com"
-                  required
-                />
-              </div>
+              <!-- Service TSP Email removed: created-by will be derived from logged-in user -->
               <div class="col-md-6">
                 <label class="form-label" for="field-biomed-person"
                   >BIOMED Person In-Charge</label
@@ -356,12 +324,13 @@
                 <label class="form-label" for="field-workwith"
                   >TSP WORKWITH (Additional Technicians)</label
                 >
-                <select
+                <input
+                  type="email"
                   id="field-workwith"
                   name="tsp_workwith"
-                  class="form-select people-picker"
-                  multiple
-                ></select>
+                  class="form-control"
+                  placeholder="e.g. colleague@mcbtsi.com"
+                />
               </div>
               <div class="col-12">
                 <label class="form-label" for="field-rec">Recommendation</label>
@@ -533,12 +502,51 @@
               <strong>Note:</strong> Submitted forms sync to Monday.com
               automatically when you're online.
             </div>
+
+            {# Auto-sync settings row #}
+            <div
+              class="d-flex align-items-center justify-content-between mb-3 px-1"
+            >
+              <span class="fw-semibold" style="font-size: 0.9rem"
+                ><i class="fas fa-cog me-1"></i> Auto-Sync</span
+              >
+              <div class="form-check form-switch mb-0">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  role="switch"
+                  id="autoSyncToggle"
+                  checked
+                  onchange="
+                    window.setAutoSync(this.checked);
+                    this.closest('.form-check').querySelector(
+                      'label',
+                    ).textContent = this.checked ? 'ON' : 'OFF';
+                  "
+                />
+                <label class="form-check-label" for="autoSyncToggle">ON</label>
+              </div>
+            </div>
+
             <div id="submissionsList" class="list-group">
               <p class="text-muted text-center py-4">
                 <i class="fas fa-check-circle"></i> No submissions yet.
               </p>
             </div>
           </div>
+
+          {# Restore autoSync toggle state from localStorage #}
+          <script>
+            (function () {
+              const toggle = document.getElementById("autoSyncToggle");
+              if (!toggle) return;
+              const stored = localStorage.getItem("autoSyncEnabled");
+              const enabled = stored !== "false";
+              toggle.checked = enabled;
+              toggle.closest(".form-check").querySelector("label").textContent =
+                enabled ? "ON" : "OFF";
+            })();
+          </script>
         </div>
       </form>
     </div>

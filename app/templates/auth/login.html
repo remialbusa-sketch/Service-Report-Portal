@@ -58,22 +58,6 @@ body_class %}auth-page{% endblock %} {% block body %}
         <hr class="flex-grow-1" />
       </div>
 
-      {# Monday.com OAuth #}
-      <a href="{{ url_for('auth.monday_login') }}" class="btn-oauth btn-monday">
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z"
-          />
-        </svg>
-        Sign in with Monday.com
-      </a>
-
       {# Google OAuth — only shown when credentials are configured #} {% if
       google_enabled %}
       <a href="{{ url_for('auth.google_login') }}" class="btn-oauth btn-google">
@@ -103,8 +87,8 @@ body_class %}auth-page{% endblock %} {% block body %}
         class="auth-footer-note text-muted text-center"
         style="font-size: 0.82rem; margin-top: 0.5rem"
       >
-        Use your account credentials or <strong>@mcbtsi.com</strong> Monday.com
-        / Google account.
+        Use your account credentials provided by your administrator. Contact
+        support if you need help logging in.
       </p>
     </div>
   </div>

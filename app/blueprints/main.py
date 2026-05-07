@@ -1,6 +1,7 @@
 import os
 import json
 import traceback
+from datetime import datetime, timezone
 
 from flask import (
     Blueprint, request, jsonify, session, redirect,
@@ -48,45 +49,47 @@ def index():
 def submit():
     try:
         item_name = request.form.get("name", "").strip()
-        linked_id = request.form.get("linked_item_id", "").strip()
 
         if not item_name:
             flash("Item name is required.", "error")
             return _submit_response(False, "Item name is required.")
-        if not linked_id:
-            flash("Please select a Service Request.", "error")
-            return _submit_response(False, "Please select a Service Request.")
 
-        # ── Extract TSP WORKWITH IDs from raw form data ───────────────
-        raw_workwith = request.form.getlist("tsp_workwith")
-        print(f"[WORKWITH] getlist result: {raw_workwith!r}")
-        print(f"[WORKWITH] full form keys: {list(request.form.keys())}")
+        # ── Extract TSP WORKWITH email and resolve to Monday people IDs ────────
+        tsp_workwith_email = request.form.get("tsp_workwith", "").strip()
+        print(f"[WORKWITH] raw email input: {tsp_workwith_email!r}")
 
-        workwith_ids: list[int] = []
-        for v in raw_workwith:
-            for part in str(v).split(","):
-                part = part.strip()
-                if part.isdigit():
-                    workwith_ids.append(int(part))
-        print(f"[WORKWITH] parsed person IDs: {workwith_ids!r}")
+        # Resolve email(s) to Monday.com user IDs for the people column
+        workwith_person_ids: list[int] = []
+        if tsp_workwith_email:
+            workwith_person_ids = monday.resolve_users_by_email(
+                [e.strip() for e in tsp_workwith_email.split(",") if e.strip()]
+            )
+            if not workwith_person_ids:
+                print(f"[WORKWITH] No matching Monday users — people column will be left unset")
 
-        # ── Extract TSP ASSIGNED IDs ──────────────────────────────────
-        raw_assigned = request.form.getlist("tsp_assigned")
-        assigned_ids: list[int] = []
-        for v in raw_assigned:
-            for part in str(v).split(","):
-                part = part.strip()
-                if part.isdigit():
-                    assigned_ids.append(int(part))
-        print(f"[ASSIGNED] parsed person IDs: {assigned_ids!r}")
+        # ── Derive Created-By from logged-in user and resolve to Monday people IDs ────────
+        created_by_person_ids: list[int] = []
+        if current_user.is_authenticated:
+            # current_user.id stores the username (email) for local users created from Monday.com sync
+            user_email = str(current_user.id or "").strip()
+            if user_email:
+                print(f"[CREATED_BY] Resolving Monday user for logged-in account: {user_email!r}")
+                created_by_person_ids = monday.resolve_users_by_email([user_email])
+                if not created_by_person_ids:
+                    print(f"[CREATED_BY] No matching Monday users for {user_email!r} — COL_CREATED_BY will be left unset")
+
+        local_timezone = request.form.get("local_timezone")
 
         form_data = {
-            "COL_SERVICE_REQUEST": linked_id,
-            "COL_EMAIL": request.form.get("email"),
-            "COL_SERVICE_START": request.form.get("service_start"),
-            "COL_SERVICE_END": request.form.get("service_end"),
-            "COL_LOGIN_DATE": request.form.get("login_date"),
-            "COL_LOGOUT_DATE": request.form.get("logout_date"),
+            # COL_TSP_WORKWITH is a people column — populated below after email resolution
+            # (kept here as None so it flows through format_column_value with resolved IDs)
+            "COL_TSP_WORKWITH": workwith_person_ids if workwith_person_ids else None,
+            # COL_CREATED_BY is a people column - populated from Service TSP Email resolution
+            "COL_CREATED_BY": created_by_person_ids if created_by_person_ids else None,
+            "COL_SERVICE_START": (datetime.fromisoformat(request.form.get("service_start","")).replace(tzinfo=timezone.utc).isoformat() if request.form.get("service_start") else None),
+            "COL_SERVICE_END": (datetime.fromisoformat(request.form.get("service_end","")).replace(tzinfo=timezone.utc).isoformat() if request.form.get("service_end") else None),
+            "COL_LOGIN_DATE": (datetime.fromisoformat(request.form.get("login_date","")).replace(tzinfo=timezone.utc).isoformat() if request.form.get("login_date") else None),
+            "COL_LOGOUT_DATE": (datetime.fromisoformat(request.form.get("logout_date","")).replace(tzinfo=timezone.utc).isoformat() if request.form.get("logout_date") else None),
             "COL_PROBLEMS": request.form.get("problems"),
             "COL_JOB_DONE": request.form.get("job_done"),
             "COL_PARTS_REPLACED": request.form.get("parts_replaced"),
@@ -102,32 +105,19 @@ def submit():
             "COL_SOFTWARE_VERSION": request.form.get("software_version"),
         }
 
-        # Track creating user
-        if current_user.is_authenticated and os.getenv("COL_CREATED_BY"):
-            form_data["COL_CREATED_BY"] = current_user.name
-
         # Build column_values dict (people column handled separately below)
         column_values = {}
         for env_var, form_value in form_data.items():
             col_id = os.getenv(env_var)
             if not col_id:
                 continue
-            formatted = monday.format_column_value(col_id, form_value)
+            formatted = monday.format_column_value(col_id, form_value, local_timezone)
             if formatted is not None:
                 column_values[col_id] = formatted
 
-        # Include people columns in create_item if we have IDs
-        workwith_col_id = os.getenv("COL_TSP_WORKWITH")
-        if workwith_ids and workwith_col_id:
-            persons_and_teams = [{"id": uid, "kind": "person"} for uid in workwith_ids]
-            column_values[workwith_col_id] = {"personsAndTeams": persons_and_teams}
-            print(f"[WORKWITH] included in create_item: {workwith_col_id} = {{'personsAndTeams': {persons_and_teams}}}")
-
-        assigned_col_id = os.getenv("COL_TSP_ASSIGNED")
-        if assigned_ids and assigned_col_id:
-            persons_and_teams = [{"id": uid, "kind": "person"} for uid in assigned_ids]
-            column_values[assigned_col_id] = {"personsAndTeams": persons_and_teams}
-            print(f"[ASSIGNED] included in create_item: {assigned_col_id} = {{'personsAndTeams': {persons_and_teams}}}")
+        # TSP WORKWITH: the people column (COL_TSP_WORKWITH) has been set above via
+        # resolve_users_by_email() → personsAndTeams JSON, handled by format_column_value().
+        # If no Monday user matched the email, the column is simply left unset.
 
         create_query = """
         mutation ($boardId: ID!, $itemName: String!, $columnVals: JSON!) {
@@ -153,50 +143,6 @@ def submit():
 
         if res.get("data", {}).get("create_item"):
             item_id = res["data"]["create_item"]["id"]
-
-            # ── Guaranteed people column update ──────────────────────────
-            # Some Monday.com accounts silently ignore people values in
-            # create_item — call change_column_value explicitly to ensure
-            # TSP WORKWITH is always assigned.
-            if workwith_ids and workwith_col_id:
-                update_q = """
-                mutation ($itemId: ID!, $boardId: ID!, $colId: String!, $val: JSON!) {
-                    change_column_value(item_id: $itemId, board_id: $boardId,
-                        column_id: $colId, value: $val) { id }
-                }
-                """
-                # change_column_value requires personsAndTeams format (not personsIds)
-                persons_and_teams = [{"id": uid, "kind": "person"} for uid in workwith_ids]
-                up_res = monday.graphql(update_q, {
-                    "itemId": item_id,
-                    "boardId": monday.MAIN_BOARD,
-                    "colId": workwith_col_id,
-                    "val": json.dumps({"personsAndTeams": persons_and_teams}),
-                }, api_key=user_token)
-                if (up_res or {}).get("errors"):
-                    print(f"[WORKWITH] update error: {up_res['errors']}")
-                else:
-                    print(f"[WORKWITH] update OK — personsIds={workwith_ids} on item {item_id}")
-
-            # Guaranteed update for TSP ASSIGNED
-            if assigned_ids and assigned_col_id:
-                update_q = """
-                mutation ($itemId: ID!, $boardId: ID!, $colId: String!, $val: JSON!) {
-                    change_column_value(item_id: $itemId, board_id: $boardId,
-                        column_id: $colId, value: $val) { id }
-                }
-                """
-                persons_and_teams = [{"id": uid, "kind": "person"} for uid in assigned_ids]
-                up_res = monday.graphql(update_q, {
-                    "itemId": item_id,
-                    "boardId": monday.MAIN_BOARD,
-                    "colId": assigned_col_id,
-                    "val": json.dumps({"personsAndTeams": persons_and_teams}),
-                }, api_key=user_token)
-                if (up_res or {}).get("errors"):
-                    print(f"[ASSIGNED] update error: {up_res['errors']}")
-                else:
-                    print(f"[ASSIGNED] update OK — personsIds={assigned_ids} on item {item_id}")
 
             # Record locally so "My Recent Submissions" always works
             if current_user.is_authenticated:
@@ -307,3 +253,11 @@ def web_manifest():
     """Serve Web App Manifest for PWA installability."""
     return send_from_directory(current_app.static_folder, "manifest.webmanifest",
                                mimetype="application/manifest+json")
+
+
+# ── Keep-alive ping (prevents Render free tier from spinning down) ─────────────
+
+@main_bp.route("/ping")
+def ping():
+    """Lightweight endpoint pinged by the client every 10 minutes."""
+    return "", 204
