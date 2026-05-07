@@ -163,9 +163,11 @@ _COLUMN_TYPE_OVERRIDES: dict[str, str] = {}
 def _build_datetime_column_value(
     date_part: str, time_part: str, time_zone: str | None = None
 ) -> dict:
+    # Fall back to the server-configured timezone if none explicitly supplied
+    tz = time_zone or os.getenv("APP_TIMEZONE") or None
     value = {"date": date_part, "time": time_part}
-    if time_zone:
-        value["time_zone"] = time_zone
+    if tz:
+        value["time_zone"] = tz
     return value
 
 
@@ -271,10 +273,9 @@ def format_column_value(
     # Datetime (datetime-local → {"date": "YYYY-MM-DD", "time": "HH:MM:SS"})
     if "datetime" in col_lower:
         if parsed_dt:
-            # Naive datetime = local time, send as-is (no timezone label)
             date_part = parsed_dt.date().isoformat()
             time_part = parsed_dt.time().strftime("%H:%M:%S")
-            return {"date": date_part, "time": time_part}
+            return _build_datetime_column_value(date_part, time_part, time_zone)
 
         # Fallback: string parsing — strip timezone offsets if present
         if "T" in val_str:
