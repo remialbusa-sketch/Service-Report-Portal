@@ -271,13 +271,10 @@ def format_column_value(
     # Datetime (datetime-local → {"date": "YYYY-MM-DD", "time": "HH:MM:SS"})
     if "datetime" in col_lower:
         if parsed_dt:
-            # Use parsed datetime to produce clean time string (no offset)
-            if parsed_dt.tzinfo is None:
-                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-            tz_name = time_zone or (parsed_dt.tzinfo.tzname(parsed_dt) if parsed_dt.tzinfo else None)
+            # Naive datetime = local time, send as-is (no timezone label)
             date_part = parsed_dt.date().isoformat()
             time_part = parsed_dt.time().strftime("%H:%M:%S")
-            return _build_datetime_column_value(date_part, time_part, tz_name)
+            return {"date": date_part, "time": time_part}
 
         # Fallback: string parsing — strip timezone offsets if present
         if "T" in val_str:
