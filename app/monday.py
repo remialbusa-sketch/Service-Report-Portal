@@ -161,14 +161,26 @@ _COLUMN_TYPE_OVERRIDES: dict[str, str] = {}
 
 
 def _build_datetime_column_value(
-    date_part: str, time_part: str, time_zone: str | None = None
+    date_part: str, time_part: str
 ) -> dict:
-    # Fall back to the server-configured timezone if none explicitly supplied
-    tz = time_zone or os.getenv("APP_TIMEZONE") or None
-    value = {"date": date_part, "time": time_part}
-    if tz:
-        value["time_zone"] = tz
-    return value
+    return {"date": date_part, "time": time_part}
+
+
+def _to_utc(dt: datetime, tz_name: str) -> datetime | None:
+    """Convert a naive datetime from the given IANA timezone to UTC."""
+    if not tz_name:
+        return None
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        return None
+    if tz is None:
+        return None
+    try:
+        localized = dt.replace(tzinfo=tz)
+        return localized.astimezone(timezone.utc)
+    except Exception:
+        return None
 
 
 def _build_column_type_overrides() -> None:
@@ -272,15 +284,17 @@ def format_column_value(
 
     # Datetime (datetime-local → {"date": "YYYY-MM-DD", "time": "HH:MM:SS"})
     if "datetime" in col_lower:
+        tz_name = time_zone or os.getenv("APP_TIMEZONE") or None
         if parsed_dt:
-            date_part = parsed_dt.date().isoformat()
-            time_part = parsed_dt.time().strftime("%H:%M:%S")
-            return _build_datetime_column_value(date_part, time_part, time_zone)
+            utc_dt = _to_utc(parsed_dt, tz_name) if tz_name else None
+            src_dt = utc_dt if utc_dt else parsed_dt
+            date_part = src_dt.date().isoformat()
+            time_part = src_dt.time().strftime("%H:%M:%S")
+            return _build_datetime_column_value(date_part, time_part)
 
         # Fallback: string parsing — strip timezone offsets if present
         if "T" in val_str:
             date_part, time_part = val_str.split("T", 1)
-            # Remove timezone offset (+00:00 or -05:00) or trailing Z
             for sep in ("+", "-", "Z"):
                 if sep in time_part:
                     time_part = time_part.split(sep)[0]
@@ -293,18 +307,29 @@ def format_column_value(
             time_part = parts[1] if len(parts) > 1 else "00:00:00"
             if time_part.count(":") == 1:
                 time_part += ":00"
-        return _build_datetime_column_value(date_part, time_part, time_zone)
+        if tz_name:
+            try:
+                fb_dt = datetime.fromisoformat(f"{date_part}T{time_part}")
+                utc_dt = _to_utc(fb_dt, tz_name)
+                if utc_dt:
+                    date_part = utc_dt.date().isoformat()
+                    time_part = utc_dt.time().strftime("%H:%M:%S")
+            except Exception:
+                pass
+        return _build_datetime_column_value(date_part, time_part)
 
     # Date / datetime — include time component when present
     if "date" in col_lower:
-        # If we parsed a datetime, and it has a non-zero time component,
-        # include the time part as well (cleaned). Otherwise, return date only.
+        tz_name = time_zone or os.getenv("APP_TIMEZONE") or None
         if parsed_dt:
             date_part = parsed_dt.date().isoformat()
             time_part = parsed_dt.time().strftime("%H:%M:%S")
             if time_part and time_part != "00:00:00":
-                tz_name = time_zone or (parsed_dt.tzinfo.tzname(parsed_dt) if parsed_dt.tzinfo else None)
-                return _build_datetime_column_value(date_part, time_part, tz_name)
+                utc_dt = _to_utc(parsed_dt, tz_name) if tz_name else None
+                src_dt = utc_dt if utc_dt else parsed_dt
+                date_part = src_dt.date().isoformat()
+                time_part = src_dt.time().strftime("%H:%M:%S")
+                return _build_datetime_column_value(date_part, time_part)
             return {"date": date_part}
 
         if "T" in val_str:
@@ -316,7 +341,16 @@ def format_column_value(
             if time_part and time_part != "00:00":
                 if time_part.count(":") == 1:
                     time_part += ":00"
-                return _build_datetime_column_value(date_part, time_part, time_zone)
+                if tz_name:
+                    try:
+                        fb_dt = datetime.fromisoformat(f"{date_part}T{time_part}")
+                        utc_dt = _to_utc(fb_dt, tz_name)
+                        if utc_dt:
+                            date_part = utc_dt.date().isoformat()
+                            time_part = utc_dt.time().strftime("%H:%M:%S")
+                    except Exception:
+                        pass
+                return _build_datetime_column_value(date_part, time_part)
             return {"date": date_part}
         return {"date": val_str}
 
