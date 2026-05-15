@@ -167,8 +167,35 @@ def _build_datetime_column_value(
 
 
 def _to_utc(dt: datetime, tz_name: str) -> datetime | None:
-    """Convert a naive datetime from the given IANA timezone to UTC."""
-    if not tz_name:
+    """Convert a naive datetime from the given timezone to UTC.
+
+    Handles IANA names (``Asia/Manila``), UTC-offset strings
+    (``UTC+08:00``, ``+08:00``, ``GMT-05:00``), and rejects invalid
+    values like ``"undefined"``.
+    """
+    if not tz_name or tz_name.lower() == "undefined":
+        return None
+
+    # ── UTC / GMT offset strings ──────────────────────────────────────
+    stripped = tz_name.strip().upper()
+    for prefix in ("UTC", "GMT"):
+        if stripped.startswith(prefix):
+            stripped = stripped[len(prefix):]
+            break
+    if stripped and stripped[0] in ("+", "-"):
+        try:
+            sign = 1 if stripped[0] == "+" else -1
+            parts = stripped[1:].split(":")
+            hours = int(parts[0])
+            minutes = int(parts[1]) if len(parts) > 1 else 0
+            offset_delta = timedelta(hours=hours * sign, minutes=minutes * sign)
+            tz = timezone(offset_delta)
+            return dt.replace(tzinfo=tz).astimezone(timezone.utc)
+        except (ValueError, IndexError):
+            pass
+
+    # ── IANA timezone name ────────────────────────────────────────────
+    if ZoneInfo is None:
         return None
     try:
         tz = ZoneInfo(tz_name)
@@ -290,7 +317,10 @@ def format_column_value(
             src_dt = utc_dt if utc_dt else parsed_dt
             date_part = src_dt.date().isoformat()
             time_part = src_dt.time().strftime("%H:%M:%S")
-            return _build_datetime_column_value(date_part, time_part)
+            result = _build_datetime_column_value(date_part, time_part)
+            print(f"[DT-FMT] col={col_id} raw={val_str!r} tz_in={time_zone!r} tz_used={tz_name!r} "
+                  f"utc={'yes' if utc_dt else 'no'} => {result}")
+            return result
 
         # Fallback: string parsing — strip timezone offsets if present
         if "T" in val_str:
@@ -316,7 +346,9 @@ def format_column_value(
                     time_part = utc_dt.time().strftime("%H:%M:%S")
             except Exception:
                 pass
-        return _build_datetime_column_value(date_part, time_part)
+        result = _build_datetime_column_value(date_part, time_part)
+        print(f"[DT-FMT-FB] col={col_id} raw={val_str!r} tz_in={time_zone!r} tz_used={tz_name!r} => {result}")
+        return result
 
     # Date / datetime — include time component when present
     if "date" in col_lower:
@@ -329,7 +361,10 @@ def format_column_value(
                 src_dt = utc_dt if utc_dt else parsed_dt
                 date_part = src_dt.date().isoformat()
                 time_part = src_dt.time().strftime("%H:%M:%S")
-                return _build_datetime_column_value(date_part, time_part)
+                result = _build_datetime_column_value(date_part, time_part)
+                print(f"[DT-FMT] col={col_id} raw={val_str!r} tz_in={time_zone!r} tz_used={tz_name!r} "
+                      f"utc={'yes' if utc_dt else 'no'} => {result}")
+                return result
             return {"date": date_part}
 
         if "T" in val_str:
@@ -350,7 +385,9 @@ def format_column_value(
                             time_part = utc_dt.time().strftime("%H:%M:%S")
                     except Exception:
                         pass
-                return _build_datetime_column_value(date_part, time_part)
+                result = _build_datetime_column_value(date_part, time_part)
+                print(f"[DT-FMT-FB] col={col_id} raw={val_str!r} tz_in={time_zone!r} tz_used={tz_name!r} => {result}")
+                return result
             return {"date": date_part}
         return {"date": val_str}
 
